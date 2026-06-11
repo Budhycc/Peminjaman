@@ -1,0 +1,124 @@
+package com.pinjam.peminjaman
+
+import androidx.compose.foundation.layout.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Logout
+import androidx.compose.material.icons.filled.Badge
+import androidx.compose.material.icons.filled.Email
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material3.*
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.dp
+import com.pinjam.peminjaman.ui.theme.PeminjamanTheme
+
+@Composable
+fun ProfilScreen(onLogout: () -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Spacer(modifier = Modifier.height(32.dp))
+        
+        // Profile Icon/Avatar Placeholder
+        Surface(
+            modifier = Modifier.size(100.dp),
+            shape = MaterialTheme.shapes.extraLarge,
+            color = MaterialTheme.colorScheme.primaryContainer
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    Icons.Default.Person,
+                    contentDescription = null,
+                    modifier = Modifier.size(64.dp),
+                    tint = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+            }
+        }
+        
+        Spacer(modifier = Modifier.height(16.dp))
+        
+        Text(
+            text = "Budi Santoso",
+            style = MaterialTheme.typography.headlineSmall
+        )
+        Text(
+            text = "Karyawan Tetap",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.outline
+        )
+        
+        Spacer(modifier = Modifier.height(32.dp))
+        
+        // Account Info Section
+        Card(
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                ProfileInfoItem(
+                    icon = Icons.Default.Badge,
+                    label = "Nomor Karyawan",
+                    value = "2024001"
+                )
+                HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
+                ProfileInfoItem(
+                    icon = Icons.Default.Email,
+                    label = "Email",
+                    value = "budi.santoso@perusahaan.com"
+                )
+            }
+        }
+        
+        Spacer(modifier = Modifier.weight(1f))
+        
+        // Logout Button
+        Button(
+            onClick = onLogout,
+            modifier = Modifier.fillMaxWidth(),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = MaterialTheme.colorScheme.errorContainer,
+                contentColor = MaterialTheme.colorScheme.onErrorContainer
+            ),
+            shape = MaterialTheme.shapes.medium
+        ) {
+            Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = null)
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("Logout")
+        }
+        
+        Spacer(modifier = Modifier.height(16.dp))
+    }
+}
+
+@Composable
+fun ProfileInfoItem(icon: ImageVector, label: String, value: String) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            icon,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(24.dp)
+        )
+        Spacer(modifier = Modifier.width(16.dp))
+        Column {
+            Text(text = label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.outline)
+            Text(text = value, style = MaterialTheme.typography.bodyLarge)
+        }
+    }
+}
+
+@Preview(showBackground = true)
+@Composable
+fun ProfilScreenPreview() {
+    PeminjamanTheme {
+        ProfilScreen(onLogout = {})
+    }
+}
