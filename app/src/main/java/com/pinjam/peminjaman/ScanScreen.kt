@@ -1,112 +1,99 @@
 package com.pinjam.peminjaman
 
 import android.Manifest
-import android.annotation.SuppressLint
 import android.util.Log
-import android.view.ViewGroup
-import androidx.annotation.OptIn
 import androidx.camera.core.*
-import androidx.camera.core.ImageAnalysis
-import androidx.camera.core.ImageProxy
-import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
-import com.google.accompanist.permissions.*
-import com.google.mlkit.vision.barcode.BarcodeScannerOptions
+import com.google.accompanist.permissions.ExperimentalPermissionsApi
+import com.google.accompanist.permissions.isGranted
+import com.google.accompanist.permissions.rememberPermissionState
 import com.google.mlkit.vision.barcode.BarcodeScanning
+import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.common.InputImage
+import com.pinjam.peminjaman.api.RetrofitClient
+import kotlinx.coroutines.launch
 import java.util.concurrent.Executors
 
-@SuppressLint("UnusedMaterial3ScaffoldPaddingParameter")
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalPermissionsApi::class)
+@OptIn(ExperimentalPermissionsApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun ScanScreen(onBack: () -> Unit, onScanResult: (Barang) -> Unit) {
     val cameraPermissionState = rememberPermissionState(Manifest.permission.CAMERA)
-    
-    val permissionStatus = cameraPermissionState.status
-    LaunchedEffect(cameraPermissionState) {
-        val isGranted = permissionStatus.isGranted
-        if (!isGranted) {
-            cameraPermissionState.launchPermissionRequest()
-        }
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val tokenManager = remember { TokenManager(context) }
+    var isProcessing by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        cameraPermissionState.launchPermissionRequest()
     }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Scan Barcode Barang") },
+                title = { Text("Scan QR Aset") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Kembali")
                     }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color.Black,
-                    titleContentColor = Color.White,
-                    navigationIconContentColor = Color.White
-                )
+                }
             )
         }
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color.Black)
-        ) {
-            val isGranted = permissionStatus.isGranted
-            if (isGranted) {
-                CameraPreview(onBarcodeScanned = { barcodeValue ->
-                    val foundBarang = BarangRepository.items.find { it.barcode == barcodeValue }
-                    if (foundBarang != null) {
-                        onScanResult(foundBarang)
+    ) { innerPadding ->
+        if (cameraPermissionState.status.isGranted) {
+            Box(modifier = Modifier.padding(innerPadding).fillMaxSize()) {
+                CameraPreview(onBarcodeScanned = { barcode ->
+                    if (!isProcessing) {
+                        isProcessing = true
+                        scope.launch {
+                            val token = tokenManager.getToken()
+                            if (token != null) {
+                                try {
+                                    // In a real scenario, barcode might be the ID or we search by barcode
+                                    // For now, let's assume barcode text contains the numeric ID or use a search endpoint if available.
+                                    // If documentation says scan-qr, we could use that, but here we jump to detail.
+                                    val id = barcode.toIntOrNull() ?: 1
+                                    val response = RetrofitClient.instance.getAssetDetail("Bearer $token", id)
+                                    if (response.isSuccessful && response.body() != null) {
+                                        val asset = response.body()!!
+                                        onScanResult(Barang(
+                                            id = asset.idAset.toString(),
+                                            barcode = asset.kodeAset,
+                                            nama = asset.namaAset,
+                                            kategori = asset.kategori,
+                                            deskripsi = "${asset.merk ?: ""} ${asset.lokasi ?: ""}".trim(),
+                                            tersedia = asset.status == "tersedia"
+                                        ))
+                                    }
+                                } catch (e: Exception) {
+                                    Log.e("ScanScreen", "Error: ${e.message}")
+                                } finally {
+                                    isProcessing = false
+                                }
+                            }
+                        }
                     }
                 })
-            } else {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("Izin kamera diperlukan untuk fitur ini", color = Color.White)
+                
+                if (isProcessing) {
+                    CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
                 }
             }
-
-            // UI Overlay
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(280.dp)
-                        .border(2.dp, Color.White, RoundedCornerShape(12.dp))
-                )
-                
-                Column(
-                    modifier = Modifier.fillMaxSize(),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Bottom
-                ) {
-                    Text(
-                        text = "Arahkan kamera ke barcode barang",
-                        color = Color.White,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.padding(bottom = 64.dp)
-                    )
-                }
+        } else {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text("Izin kamera diperlukan untuk fitur ini.")
             }
         }
     }
@@ -118,42 +105,25 @@ fun CameraPreview(onBarcodeScanned: (String) -> Unit) {
     val lifecycleOwner = LocalLifecycleOwner.current
     val cameraProviderFuture = remember { ProcessCameraProvider.getInstance(context) }
     val executor = remember { Executors.newSingleThreadExecutor() }
-    
-    var isScanned by remember { mutableStateOf(false) }
 
     AndroidView(
         factory = { ctx ->
-            val previewView = PreviewView(ctx).apply {
-                layoutParams = ViewGroup.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.MATCH_PARENT
-                )
-            }
-
+            val previewView = PreviewView(ctx)
             cameraProviderFuture.addListener({
                 val cameraProvider = cameraProviderFuture.get()
-                
                 val preview = Preview.Builder().build().also {
-                    it.surfaceProvider = previewView.surfaceProvider
+                    it.setSurfaceProvider(previewView.surfaceProvider)
                 }
 
-                val scanner = BarcodeScanning.getClient(
-                    BarcodeScannerOptions.Builder()
-                        .build()
-                )
-
-                    val imageAnalysis = ImageAnalysis.Builder()
-                        .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-                        .build()
-                        .also { analysis ->
-                            analysis.setAnalyzer(executor) { imageProxy ->
-                                processImageProxy(imageProxy, scanner, isScanned) { value ->
-                                    isScanned = true
-                                    onBarcodeScanned(value)
-                                }
-                            }
+                val barcodeScanner = BarcodeScanning.getClient()
+                val imageAnalysis = ImageAnalysis.Builder()
+                    .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                    .build()
+                    .also {
+                        it.setAnalyzer(executor) { imageProxy ->
+                            processImageProxy(barcodeScanner, imageProxy, onBarcodeScanned)
                         }
-
+                    }
 
                 try {
                     cameraProvider.unbindAll()
@@ -163,37 +133,33 @@ fun CameraPreview(onBarcodeScanned: (String) -> Unit) {
                         preview,
                         imageAnalysis
                     )
-                } catch (ex: Exception) {
-                    Log.e("ScanScreen", "Use case binding failed", ex)
+                } catch (e: Exception) {
+                    Log.e("CameraPreview", "Binding failed", e)
                 }
             }, ContextCompat.getMainExecutor(ctx))
-
             previewView
         },
         modifier = Modifier.fillMaxSize()
     )
 }
 
-@SuppressLint("UnsafeOptInUsageError")
+@androidx.annotation.OptIn(ExperimentalGetImage::class)
 private fun processImageProxy(
+    barcodeScanner: com.google.mlkit.vision.barcode.BarcodeScanner,
     imageProxy: ImageProxy,
-    scanner: com.google.mlkit.vision.barcode.BarcodeScanner,
-    isScanned: Boolean,
     onBarcodeScanned: (String) -> Unit
 ) {
     val mediaImage = imageProxy.image
-    if (mediaImage != null && !isScanned) {
+    if (mediaImage != null) {
         val image = InputImage.fromMediaImage(mediaImage, imageProxy.imageInfo.rotationDegrees)
-        scanner.process(image)
+        barcodeScanner.process(image)
             .addOnSuccessListener { barcodes ->
-                if (barcodes.isNotEmpty()) {
-                    barcodes.firstOrNull()?.rawValue?.let { value ->
-                        onBarcodeScanned(value)
-                    }
+                for (barcode in barcodes) {
+                    barcode.rawValue?.let { onBarcodeScanned(it) }
                 }
             }
             .addOnFailureListener {
-                Log.e("ScanScreen", "Barcode scan failed", it)
+                Log.e("ScanScreen", "Barcode scanning failed", it)
             }
             .addOnCompleteListener {
                 imageProxy.close()

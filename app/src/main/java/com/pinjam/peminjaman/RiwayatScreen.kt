@@ -14,14 +14,42 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.pinjam.peminjaman.api.LoanResponse
+import com.pinjam.peminjaman.api.RetrofitClient
 import com.pinjam.peminjaman.ui.theme.PeminjamanTheme
 
 @Composable
 fun RiwayatScreen() {
+    val context = LocalContext.current
+    val tokenManager = remember { TokenManager(context) }
+    
     var selectedTabIndex by remember { mutableIntStateOf(0) }
     val tabs = listOf("Semua", "Pinjam", "Kembali")
+    
+    var loans by remember { mutableStateOf<List<LoanResponse>>(emptyList()) }
+    var isLoading by remember { mutableStateOf(true) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(Unit) {
+        val token = tokenManager.getToken()
+        if (token != null) {
+            try {
+                val response = RetrofitClient.instance.getMyHistory("Bearer $token")
+                if (response.isSuccessful) {
+                    loans = response.body() ?: emptyList()
+                } else {
+                    errorMessage = "Gagal memuat riwayat"
+                }
+            } catch (e: Exception) {
+                errorMessage = e.localizedMessage
+            } finally {
+                isLoading = false
+            }
+        }
+    }
 
     Column(modifier = Modifier.fillMaxSize()) {
         TabRow(selectedTabIndex = selectedTabIndex) {
@@ -34,34 +62,41 @@ fun RiwayatScreen() {
             }
         }
 
-        val filteredRiwayat = when (selectedTabIndex) {
-            1 -> RiwayatRepository.items.filter { it.tipe == RiwayatType.PEMINJAMAN }
-            2 -> RiwayatRepository.items.filter { it.tipe == RiwayatType.PENGEMBALIAN }
-            else -> RiwayatRepository.items
-        }
+        if (isLoading) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator()
+            }
+        } else if (errorMessage != null) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text(text = errorMessage!!, color = MaterialTheme.colorScheme.error)
+            }
+        } else {
+            val filteredRiwayat = when (selectedTabIndex) {
+                1 -> loans.filter { it.status == "dipinjam" }
+                2 -> loans.filter { it.status == "dikembalikan" }
+                else -> loans
+            }
 
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            items(filteredRiwayat) { item ->
-                RiwayatItem(riwayat = item)
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                items(filteredRiwayat) { item ->
+                    RiwayatItem(loan = item)
+                }
             }
         }
     }
 }
 
 @Composable
-fun RiwayatItem(riwayat: Riwayat) {
+fun RiwayatItem(loan: LoanResponse) {
     val icon: ImageVector
     val iconColor: Color
     val typeText: String
     
-    // Find associated barang to get image and category (optional, based on mock data)
-    val associatedBarang = BarangRepository.items.find { it.nama == riwayat.barangNama }
-
-    if (riwayat.tipe == RiwayatType.PEMINJAMAN) {
+    if (loan.status == "dipinjam") {
         icon = Icons.Default.Outbox
         iconColor = MaterialTheme.colorScheme.primary
         typeText = "Peminjaman"
@@ -97,14 +132,14 @@ fun RiwayatItem(riwayat: Riwayat) {
             Spacer(modifier = Modifier.width(12.dp))
             
             Column(modifier = Modifier.weight(1f)) {
-                Text(riwayat.barangNama, style = MaterialTheme.typography.titleMedium)
+                Text(loan.asset?.namaAset ?: "Aset", style = MaterialTheme.typography.titleMedium)
                 Text(
-                    text = "${associatedBarang?.kategori ?: "Barang"} • $typeText",
+                    text = "${loan.asset?.kategori ?: "Barang"} • $typeText",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.outline
                 )
                 Text(
-                    text = riwayat.tanggal,
+                    text = loan.tanggalPinjam,
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.outline
                 )
@@ -124,12 +159,12 @@ fun RiwayatItem(riwayat: Riwayat) {
                 Spacer(modifier = Modifier.height(4.dp))
                 
                 Badge(
-                    containerColor = if (riwayat.status == "Berlangsung") 
+                    containerColor = if (loan.status == "dipinjam") 
                         MaterialTheme.colorScheme.tertiaryContainer 
                     else 
                         MaterialTheme.colorScheme.surfaceVariant
                 ) {
-                    Text(riwayat.status)
+                    Text(loan.status.replaceFirstChar { it.uppercase() })
                 }
             }
         }

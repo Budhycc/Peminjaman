@@ -1,14 +1,12 @@
 package com.pinjam.peminjaman
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Search
@@ -17,19 +15,61 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.pinjam.peminjaman.api.AssetResponse
+import com.pinjam.peminjaman.api.RetrofitClient
 import com.pinjam.peminjaman.ui.theme.PeminjamanTheme
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BarangListScreen(onBack: () -> Unit, onItemClick: (Barang) -> Unit, onScanClick: () -> Unit) {
+    val context = LocalContext.current
+    val tokenManager = remember { TokenManager(context) }
+    
     var searchQuery by remember { mutableStateOf("") }
     var selectedCategory by remember { mutableStateOf("Semua") }
+    
+    var assets by remember { mutableStateOf<List<AssetResponse>>(emptyList()) }
+    var isLoading by remember { mutableStateOf(true) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
 
-    val filteredItems = BarangRepository.items.filter {
+    val categories = remember(assets) {
+        listOf("Semua") + assets.map { it.kategori }.distinct().sorted()
+    }
+
+    LaunchedEffect(Unit) {
+        val token = tokenManager.getToken()
+        if (token != null) {
+            try {
+                val response = RetrofitClient.instance.getAssets("Bearer $token")
+                if (response.isSuccessful) {
+                    assets = response.body() ?: emptyList()
+                } else {
+                    errorMessage = "Gagal memuat aset: ${response.code()}"
+                }
+            } catch (e: Exception) {
+                errorMessage = e.localizedMessage
+            } finally {
+                isLoading = false
+            }
+        }
+    }
+
+    val filteredItems = assets.filter {
         (selectedCategory == "Semua" || it.kategori == selectedCategory) &&
-                it.nama.contains(searchQuery, ignoreCase = true)
+                it.namaAset.contains(searchQuery, ignoreCase = true)
+    }.map { asset ->
+        // Map API response to local Barang model
+        Barang(
+            id = (asset.idAset ?: 0).toString(),
+            barcode = asset.kodeAset,
+            nama = asset.namaAset,
+            kategori = asset.kategori,
+            deskripsi = "${asset.merk ?: ""} ${asset.lokasi ?: ""}".trim(),
+            tersedia = asset.status == "tersedia"
+        )
     }
 
     Scaffold(
@@ -54,41 +94,51 @@ fun BarangListScreen(onBack: () -> Unit, onItemClick: (Barang) -> Unit, onScanCl
                 .padding(innerPadding)
                 .fillMaxSize()
         ) {
-            // Search Bar
-            OutlinedTextField(
-                value = searchQuery,
-                onValueChange = { searchQuery = it },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp),
-                placeholder = { Text("Cari barang...") },
-                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                singleLine = true
-            )
-
-            // Filter Kategori
-            LazyRow(
-                contentPadding = PaddingValues(horizontal = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.padding(bottom = 16.dp)
-            ) {
-                items(BarangRepository.categories) { kategori ->
-                    FilterChip(
-                        selected = selectedCategory == kategori,
-                        onClick = { selectedCategory = kategori },
-                        label = { Text(kategori) }
-                    )
+            if (isLoading) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator()
                 }
-            }
+            } else if (errorMessage != null) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text(text = errorMessage!!, color = MaterialTheme.colorScheme.error)
+                }
+            } else {
+                // Search Bar
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    placeholder = { Text("Cari barang...") },
+                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                    singleLine = true
+                )
 
-            // List Barang
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                items(filteredItems) { barang ->
-                    BarangItem(barang = barang, onClick = { onItemClick(barang) })
+                // Filter Kategori
+                LazyRow(
+                    contentPadding = PaddingValues(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.padding(bottom = 16.dp)
+                ) {
+                    items(categories) { kategori ->
+                        FilterChip(
+                            selected = selectedCategory == kategori,
+                            onClick = { selectedCategory = kategori },
+                            label = { Text(kategori) }
+                        )
+                    }
+                }
+
+                // List Barang
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(filteredItems) { barang ->
+                        BarangItem(barang = barang, onClick = { onItemClick(barang) })
+                    }
                 }
             }
         }
@@ -136,7 +186,6 @@ fun BarangItem(barang: Barang, onClick: () -> Unit) {
         }
     }
 }
-
 
 @Preview(showBackground = true)
 @Composable

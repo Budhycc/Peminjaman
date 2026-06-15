@@ -19,6 +19,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.pinjam.peminjaman.ui.theme.PeminjamanTheme
@@ -37,14 +38,19 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun PeminjamanApp() {
-    var isLoggedIn by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    val tokenManager = remember { TokenManager(context) }
+    var isLoggedIn by remember { mutableStateOf(tokenManager.getToken() != null) }
 
     Surface(
         modifier = Modifier.fillMaxSize(),
         color = MaterialTheme.colorScheme.background
     ) {
         if (isLoggedIn) {
-            MainScreen(onLogout = { isLoggedIn = false })
+            MainScreen(onLogout = { 
+                tokenManager.clearToken()
+                isLoggedIn = false 
+            })
         } else {
             LoginScreen(onLoginSuccess = { isLoggedIn = true })
         }

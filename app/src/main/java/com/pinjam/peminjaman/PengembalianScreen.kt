@@ -8,18 +8,53 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.pinjam.peminjaman.api.LoanResponse
+import com.pinjam.peminjaman.api.RetrofitClient
+import com.pinjam.peminjaman.api.ReturnRequest
 import com.pinjam.peminjaman.ui.theme.PeminjamanTheme
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PengembalianScreen(onBack: () -> Unit) {
-    // Mocking borrowed items by "Budi Santoso"
-    val borrowedItems = BarangRepository.items.filter { it.dipinjamOleh == "Budi Santoso" }
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val tokenManager = remember { TokenManager(context) }
+    
+    var loans by remember { mutableStateOf<List<LoanResponse>>(emptyList()) }
+    var isLoading by remember { mutableStateOf(true) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+
+    fun refreshLoans() {
+        val token = tokenManager.getToken()
+        if (token != null) {
+            scope.launch {
+                isLoading = true
+                try {
+                    val response = RetrofitClient.instance.getMyHistory("Bearer $token")
+                    if (response.isSuccessful) {
+                        loans = response.body()?.filter { it.status == "dipinjam" } ?: emptyList()
+                    } else {
+                        errorMessage = "Gagal memuat data"
+                    }
+                } catch (e: Exception) {
+                    errorMessage = e.localizedMessage
+                } finally {
+                    isLoading = false
+                }
+            }
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        refreshLoans()
+    }
 
     Scaffold(
         topBar = {
@@ -38,7 +73,15 @@ fun PengembalianScreen(onBack: () -> Unit) {
                 .padding(innerPadding)
                 .fillMaxSize()
         ) {
-            if (borrowedItems.isEmpty()) {
+            if (isLoading) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator()
+                }
+            } else if (errorMessage != null) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text(text = errorMessage!!, color = MaterialTheme.colorScheme.error)
+                }
+            } else if (loans.isEmpty()) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Text("Anda tidak memiliki tanggungan peminjaman.")
                 }
@@ -54,8 +97,32 @@ fun PengembalianScreen(onBack: () -> Unit) {
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                     modifier = Modifier.fillMaxSize()
                 ) {
-                    items(borrowedItems) { barang ->
-                        BorrowedItemRow(barang = barang)
+                    items(loans) { loan ->
+                        BorrowedItemRow(
+                            loan = loan,
+                            onReturn = {
+                                scope.launch {
+                                    val token = tokenManager.getToken()
+                                    if (token != null) {
+                                        try {
+                                            val response = RetrofitClient.instance.createReturn(
+                                                "Bearer $token",
+                                                ReturnRequest(
+                                                    idPeminjaman = loan.idPeminjaman ?: 0,
+                                                    kondisiKembali = "baik",
+                                                    catatan = "Dikembalikan via aplikasi"
+                                                )
+                                            )
+                                            if (response.isSuccessful) {
+                                                refreshLoans()
+                                            }
+                                        } catch (e: Exception) {
+                                            // Handle error
+                                        }
+                                    }
+                                }
+                            }
+                        )
                     }
                 }
             }
@@ -64,7 +131,7 @@ fun PengembalianScreen(onBack: () -> Unit) {
 }
 
 @Composable
-fun BorrowedItemRow(barang: Barang) {
+fun BorrowedItemRow(loan: LoanResponse, onReturn: () -> Unit) {
     OutlinedCard(
         modifier = Modifier.fillMaxWidth()
     ) {
@@ -88,17 +155,16 @@ fun BorrowedItemRow(barang: Barang) {
                 Spacer(modifier = Modifier.width(12.dp))
 
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(barang.nama, style = MaterialTheme.typography.titleMedium)
-                    Text(barang.kategori, style = MaterialTheme.typography.bodySmall)
+                    Text(loan.asset?.namaAset ?: "Aset", style = MaterialTheme.typography.titleMedium)
+                    Text(loan.asset?.kategori ?: "Barang", style = MaterialTheme.typography.bodySmall)
                 }
-                Button(onClick = { /* Action Kembalikan */ }) {
+                Button(onClick = onReturn) {
                     Text("Kembalikan")
                 }
             }
         }
     }
 }
-
 
 @Preview(showBackground = true)
 @Composable
